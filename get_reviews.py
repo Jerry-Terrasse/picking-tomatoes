@@ -1,5 +1,6 @@
 import asyncio
 import aiohttp
+from aiohttp.cookiejar import SimpleCookie
 
 import json
 import sys
@@ -21,11 +22,13 @@ url_template = "https://www.rottentomatoes.com/napi/movie/%s/reviews/user"
 
 movies: dict[str, dict] = {}
 fresh = False
-max_reqs = 9
+max_reqs = 5
 
 sem = asyncio.Semaphore(max_reqs)
 
 headers = json.load(open("headers.json", "r"))
+cookies = SimpleCookie(headers['Cookie'])
+del headers['Cookie']
 
 def await_(coroutine: asyncio.coroutine):
     loop = asyncio.get_event_loop()
@@ -35,24 +38,28 @@ def await_(coroutine: asyncio.coroutine):
 @logger.catch(reraise=True)
 async def get_review(title: str, url: str, after: str|None) -> dict|None:
     logger.debug(f"<{title}> GET {url}")
-    async with aiohttp.ClientSession() as session:
+    async with aiohttp.ClientSession(cookies=cookies) as session:
         if after:
             params = {'after': after}
         else:
             params = {}
         while True:
             async with session.get(url, params=params, headers=headers) as response:
+                # logger.debug(cookies['bm_sv'], "pre")
+                cookies.update(response.cookies)
+                # logger.debug(cookies['bm_sv'], "post")
                 if response.status != 200:
                     logger.warning(f"<{title}> Status {response.status} for {url}, retrying")
                     # breakpoint()
-                    time.sleep(2) # blocked waiting
+                    time.sleep(20) # blocked waiting
                     continue
                 try:
                     data = await response.json()
                 except Exception as e:
                     logger.warning(f"<{title}> Failed to parse json: {e}, retrying")
                     text = await response.text()
-                    breakpoint()
+                    # breakpoint()
+                    time.sleep(20) # blocked waiting
                     continue
                 time.sleep(0.1) # blocked waiting
                 return data
